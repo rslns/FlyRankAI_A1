@@ -1,2 +1,2 @@
-PASTE-YOUR-DEPLOYED-PAPER-URL-HERE
+
 https://rslns.github.io/FlyRankAI_A1/
