@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <title>Predicting CTR Improvement from Search Performance Signals</title>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      line-height: 1.7;
+      margin: 0;
+      background: #f5f7fa;
+      color: #202124;
+    }
+
+    header {
+      background: #111827;
+      color: white;
+      padding: 60px 20px;
+      text-align: center;
+    }
+
+    header h1 {
+      max-width: 900px;
+      margin: auto;
+      font-size: 42px;
+    }
+
+    header p {
+      margin-top: 15px;
+      color: #d1d5db;
+      font-size: 18px;
+    }
+
+    main {
+      max-width: 1000px;
+      margin: 40px auto;
+      padding: 0 20px;
+    }
+
+    section {
+      background: white;
+      padding: 30px;
+      margin-bottom: 25px;
+      border-radius: 12px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+    }
+
+    h2 {
+      color: #111827;
+      border-bottom: 2px solid #e5e7eb;
+      padding-bottom: 10px;
+    }
+
+    h3 {
+      color: #374151;
+    }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 15px;
+      margin: 20px 0;
+    }
+
+    .metric {
+      background: #f3f4f6;
+      padding: 20px;
+      border-radius: 10px;
+      text-align: center;
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 28px;
+      color: #111827;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 20px 0;
+    }
+
+    th, td {
+      border: 1px solid #ddd;
+      padding: 12px;
+      text-align: left;
+    }
+
+    th {
+      background: #f3f4f6;
+    }
+
+    .highlight {
+      background: #eef2ff;
+      border-left: 5px solid #4f46e5;
+      padding: 15px 20px;
+      margin: 20px 0;
+    }
+
+    .warning {
+      background: #fff7ed;
+      border-left: 5px solid #f97316;
+      padding: 15px 20px;
+      margin: 20px 0;
+    }
+
+    footer {
+      text-align: center;
+      padding: 40px 20px;
+      color: #6b7280;
+    }
+
+    a {
+      color: #4f46e5;
+    }
+
+    @media (max-width: 600px) {
+      header h1 {
+        font-size: 30px;
+      }
+
+      section {
+        padding: 20px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+<header>
+  <h1>Predicting CTR Improvement from Search Performance Signals</h1>
+  <p>A decision-support analysis using the FlyRank ML Internship dataset</p>
+</header>
+
+<main>
+
+<section>
+  <h2>Abstract</h2>
+
+  <p>
+    This study asks whether search-performance signals observed for content can
+    help identify content that is likely to show CTR improvement in a subsequent
+    observation window. The analysis uses aggregated content-level search and
+    engagement signals and compares a Week-4 rule-based baseline with Logistic
+    Regression. A client-grouped train/test split was used so that clients in the
+    training data did not appear in the test data, with zero client overlap.
+    Logistic Regression achieved a ROC-AUC of 0.8153 and Average Precision of
+    0.3261, compared with 0.4814 and 0.1270 respectively for the Week-4 baseline
+    on the same evaluation setup. The result is treated as observed predictive
+    evidence and decision support rather than evidence of causality or proof of
+    how a search engine ranking system works.
+  </p>
+</section>
+
+
+<section>
+  <h2>1. Introduction / Problem Statement</h2>
+
+  <p>
+    Search teams often need to decide which content deserves closer review.
+    Reviewing every content item equally is inefficient, so a useful workflow
+    needs a repeatable way to prioritize candidates.
+  </p>
+
+  <p>
+    The decision supported by this project is:
+    <strong>which content items should receive higher priority for review based
+    on observable search and engagement signals?</strong>
+  </p>
+
+  <p>
+    The project evaluates whether a simple machine-learning model can provide
+    better ranking-oriented predictive information than the Week-4 rule-based
+    baseline.
+  </p>
+
+  <div class="highlight">
+    <strong>Important framing:</strong>
+    The model identifies statistical patterns in the available data. It does
+    not establish that any feature causes CTR improvement, and it does not prove
+    anything about Google's ranking algorithm.
+  </div>
+</section>
+
+
+<section>
+  <h2>2. Data</h2>
+
+  <p>
+    The analysis uses the FlyRank ML Internship warehouse dataset. The main
+    modeling data was aggregated at the client-content level from the March
+    observation window, with a subsequent April window used to define the
+    improvement outcome.
+  </p>
+
+  <div class="metric-grid">
+
+    <div class="metric">
+      <strong>331,436</strong>
+      Final modeling rows
+    </div>
+
+    <div class="metric">
+      <strong>9</strong>
+      Model features
+    </div>
+
+    <div class="metric">
+      <strong>10.18%</strong>
+      Positive target rate
+    </div>
+
+    <div class="metric">
+      <strong>0</strong>
+      Client overlap
+    </div>
+
+  </div>
+
+  <h3>Core features</h3>
+
+  <ul>
+    <li>Impressions</li>
+    <li>Clicks</li>
+    <li>CTR</li>
+    <li>Average position</li>
+    <li>GA4 sessions</li>
+    <li>GA4 engaged sessions</li>
+    <li>GSC days available</li>
+    <li>GA4 days available</li>
+    <li>Position-missing indicator</li>
+  </ul>
+
+  <h3>Target</h3>
+
+  <p>
+    The target variable is <code>ctr_improved</code>. The final modeling data
+    contained 297,708 negative observations and 33,728 positive observations.
+  </p>
+
+  <table>
+    <tr>
+      <th>Target</th>
+      <th>Rows</th>
+      <th>Share</th>
+    </tr>
+    <tr>
+      <td>0</td>
+      <td>297,708</td>
+      <td>89.82%</td>
+    </tr>
+    <tr>
+      <td>1</td>
+      <td>33,728</td>
+      <td>10.18%</td>
+    </tr>
+  </table>
+
+  <div class="warning">
+    Client names, domains, private queries, credentials, and raw warehouse
+    exports are intentionally excluded from this public paper.
+  </div>
+</section>
+
+
+<section>
+  <h2>3. Methodology</h2>
+
+  <h3>Method choice</h3>
+
+  <p>
+    Logistic Regression was selected as the primary model because the task is
+    binary classification and the model provides interpretable coefficients.
+    Interpretability is useful for a decision-support workflow where the goal
+    is not simply prediction, but also understanding which available signals
+    are associated with the prediction.
+  </p>
+
+  <h3>Validation design</h3>
+
+  <p>
+    A grouped train/test split was used based on client identity. Each client
+    was kept entirely within either the training set or the test set.
+    This prevents the same client from appearing on both sides of evaluation.
+  </p>
+
+  <table>
+    <tr>
+      <th>Measure</th>
+      <th>Training</th>
+      <th>Test</th>
+    </tr>
+    <tr>
+      <td>Rows</td>
+      <td>300,879</td>
+      <td>30,557</td>
+    </tr>
+    <tr>
+      <td>Clients</td>
+      <td>44</td>
+      <td>11</td>
+    </tr>
+    <tr>
+      <td>Positive rate</td>
+      <td>9.92%</td>
+      <td>12.74%</td>
+    </tr>
+    <tr>
+      <td>Client overlap</td>
+      <td colspan="2">0</td>
+    </tr>
+  </table>
+
+  <h3>Leakage check</h3>
+
+  <p>
+    The feature set was checked for label-derived columns. The final modeling
+    features did not include the future CTR-improvement label itself.
+    Future-window outcome information was not used as a predictive feature.
+  </p>
+
+  <h3>Evaluation metrics</h3>
+
+  <p>
+    ROC-AUC measures how well the model separates positive and negative
+    observations across classification thresholds. Average Precision is also
+    reported because the positive class represents only about 10% of the
+    modeling population.
+  </p>
+</section>
+
+
+<section>
+  <h2>4. Results</h2>
+
+  <p>
+    The Logistic Regression model was evaluated against the Week-4 baseline
+    using the same test population and the same metrics.
+  </p>
+
+  <table>
+    <tr>
+      <th>Method</th>
+      <th>ROC-AUC</th>
+      <th>Average Precision</th>
+    </tr>
+
+    <tr>
+      <td>Week-4 Baseline</td>
+      <td>0.4814</td>
+      <td>0.1270</td>
+    </tr>
+
+    <tr>
+      <td><strong>Logistic Regression</strong></td>
+      <td><strong>0.8153</strong></td>
+      <td><strong>0.3261</strong></td>
+    </tr>
+  </table>
+
+  <div class="metric-grid">
+
+    <div class="metric">
+      <strong>0.8153</strong>
+      Logistic Regression ROC-AUC
+    </div>
+
+    <div class="metric">
+      <strong>0.3261</strong>
+      Logistic Regression AP
+    </div>
+
+    <div class="metric">
+      <strong>0.4814</strong>
+      Baseline ROC-AUC
+    </div>
+
+    <div class="metric">
+      <strong>0.1270</strong>
+      Baseline AP
+    </div>
+
+  </div>
+
+  <p>
+    On this evaluation setup, Logistic Regression produced substantially
+    stronger ranking performance than the Week-4 baseline. This is an observed
+    difference on the evaluated split and should not be interpreted as proof
+    that the model will perform identically on every future dataset.
+  </p>
+</section>
+
+
+<section>
+  <h2>5. Feature Interpretation</h2>
+
+  <p>
+    The Logistic Regression coefficients provide directional information about
+    the relationship between each feature and the modeled outcome, holding the
+    other included features constant.
+  </p>
+
+  <table>
+    <tr>
+      <th>Feature</th>
+      <th>Coefficient</th>
+      <th>Observed direction</th>
+    </tr>
+
+    <tr>
+      <td>GSC days available</td>
+      <td>0.781855</td>
+      <td>Positive</td>
+    </tr>
+
+    <tr>
+      <td>Position missing</td>
+      <td>-0.491317</td>
+      <td>Negative</td>
+    </tr>
+
+    <tr>
+      <td>Average position</td>
+      <td>-0.333506</td>
+      <td>Negative</td>
+    </tr>
+
+    <tr>
+      <td>Clicks</td>
+      <td>-0.248829</td>
+      <td>Negative</td>
+    </tr>
+
+    <tr>
+      <td>Impressions</td>
+      <td>0.225789</td>
+      <td>Positive</td>
+    </tr>
+
+    <tr>
+      <td>GA4 days available</td>
+      <td>0.160804</td>
+      <td>Positive</td>
+    </tr>
+
+    <tr>
+      <td>CTR</td>
+      <td>-0.142484</td>
+      <td>Negative</td>
+    </tr>
+
+    <tr>
+      <td>GA4 sessions</td>
+      <td>0.045135</td>
+      <td>Positive</td>
+    </tr>
+
+    <tr>
+      <td>GA4 engaged sessions</td>
+      <td>0.005263</td>
+      <td>Positive</td>
+    </tr>
+  </table>
+
+  <div class="warning">
+    These coefficients describe associations used by the model. They are not
+    causal effects and should not be interpreted as proof that changing one
+    signal will cause CTR to improve.
+  </div>
+</section>
+
+
+<section>
+  <h2>6. Error Analysis</h2>
+
+  <p>
+    On the evaluated test set, the confusion matrix was:
+  </p>
+
+  <table>
+    <tr>
+      <th></th>
+      <th>Predicted Negative</th>
+      <th>Predicted Positive</th>
+    </tr>
+
+    <tr>
+      <th>Actual Negative</th>
+      <td>18,057</td>
+      <td>8,608</td>
+    </tr>
+
+    <tr>
+      <th>Actual Positive</th>
+      <td>566</td>
+      <td>3,326</td>
+    </tr>
+  </table>
+
+  <p>
+    The model produced 3,326 true positives and 566 false negatives, meaning
+    most of the observed positive cases were captured at the selected
+    classification threshold. However, it also produced 8,608 false positives.
+    Therefore, the model is better suited to prioritization and review queues
+    than to treating every positive prediction as a guaranteed outcome.
+  </p>
+
+  <p>
+    The strongest coefficient in absolute value was associated with GSC data
+    availability, followed by the position-missing indicator and average
+    position. This suggests that data availability and search-performance
+    context are important parts of the model's decision boundary.
+  </p>
+</section>
+
+
+<section>
+  <h2>7. Limitations & Honest Framing</h2>
+
+  <ul>
+    <li>
+      The results are measured on one grouped evaluation split and may not
+      generalize unchanged to other data releases.
+    </li>
+
+    <li>
+      The target is an observed future-window outcome and does not establish
+      causality.
+    </li>
+
+    <li>
+      Logistic Regression assumes a relatively simple relationship between
+      features and the log-odds of the outcome.
+    </li>
+
+    <li>
+      The dataset is imbalanced, so accuracy alone would be misleading.
+    </li>
+
+    <li>
+      The model should be treated as a prioritization and decision-support
+      system rather than an automated content decision maker.
+    </li>
+
+    <li>
+      The analysis does not demonstrate how Google's ranking system works and
+      does not claim that any feature directly causes ranking or CTR changes.
+    </li>
+  </ul>
+
+  <div class="highlight">
+    <strong>Honest conclusion:</strong>
+    The observed evaluation shows that Logistic Regression provided stronger
+    predictive discrimination than the Week-4 baseline on the same grouped
+    test setup. The evidence is directional and useful for prioritization,
+    but further validation is needed before operational deployment.
+  </div>
+</section>
+
+
+<section>
+  <h2>8. Ranked Recommendations</h2>
+
+  <h3>1. Use the model as a review-prioritization queue</h3>
+
+  <p>
+    Rank content using model scores and send the highest-priority items for
+    human review. Do not automatically change content based solely on the
+    prediction.
+  </p>
+
+  <h3>2. Review high-score content with strong search visibility</h3>
+
+  <p>
+    Content receiving substantial impressions but showing a high predicted
+    probability of improvement can be considered for closer CTR and metadata
+    review.
+  </p>
+
+  <h3>3. Treat data availability as an explicit review factor</h3>
+
+  <p>
+    Because data-availability signals were important to the fitted model,
+    analysts should distinguish genuine performance patterns from differences
+    in measurement coverage.
+  </p>
+
+  <h3>4. Prioritize human investigation of false positives</h3>
+
+  <p>
+    The model produced 8,608 false positives on the evaluated threshold.
+    Review these cases to identify situations where the model is systematically
+    over-prioritizing content.
+  </p>
+
+  <h3>5. Revalidate before production use</h3>
+
+  <p>
+    Repeat evaluation on additional time periods or releases before treating
+    the model as a stable operational ranking system.
+  </p>
+</section>
+
+
+<section>
+  <h2>9. Reproducibility</h2>
+
+  <p>
+    The project was developed as part of the FlyRank ML Internship and the
+    analysis is organized in the project repository.
+  </p>
+
+  <ul>
+    <li>Week-4 baseline notebook: <code>work/notebooks/w04_baseline_score.ipynb</code></li>
+    <li>Week-5 modeling notebook: <code>work/notebooks/w05_model.ipynb</code></li>
+    <li>Capstone notebook: stored under <code>work/notebooks/</code></li>
+    <li>Paper URL: stored in <code>submission/paper_url.txt</code></li>
+  </ul>
+
+  <p>
+    The modeling workflow includes feature construction, grouped validation,
+    model training, baseline comparison, metric calculation, coefficient
+    interpretation, and error analysis.
+  </p>
+</section>
+
+
+<section>
+  <h2>10. Acknowledgments & Data Credit</h2>
+
+  <p>
+    Built on the
+    <a href="https://flyrank.ai" target="_blank" rel="noopener noreferrer">
+      FlyRank ML Internship dataset
+    </a>.
+  </p>
+
+  <p>
+    This project was completed as part of the FlyRank ML Internship.
+    The public version intentionally excludes private client information,
+    domains, queries, credentials, and raw data exports.
+  </p>
+</section>
+
+</main>
+
+
+<footer>
+  <p>FlyRank ML Internship · Search Intelligence Capstone</p>
+  <p>Analysis presented for research and decision-support purposes.</p>
+</footer>
+
+</body>
+</html>
